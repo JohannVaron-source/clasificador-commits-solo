@@ -22,3 +22,4 @@ El equipo utilizado para las pruebas cuenta con un procesador Intel Core i5-9300
 La memoria observada en WSL después de la inferencia fue de 1,3 GiB usados, con 2,5 GiB disponibles. Esta medición corresponde al momento posterior a la ejecución y no necesariamente al pico de memoria alcanzado durante la generación.
 
 La calidad percibida fue calificada con 4 sobre 5, debido a que el modelo respondió adecuadamente a instrucciones sencillas, aunque se considera que puede presentar limitaciones al realizar tareas más complejas.
+
