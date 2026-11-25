@@ -1,0 +1,24 @@
+# Informe técnico – Caracterización del modelo local
+
+## Caracterización inicial del modelo
+
+| Dato | Valor |
+|---|---|
+| Perfil de hardware | Intel Core i5-9300H @ 2.40 GHz, 8 GB de RAM, NVIDIA GeForce GTX 1650 de 4 GB e Intel UHD Graphics 630. Sistema operativo Windows de 64 bits. |
+| RAM total del equipo | 8 GB (7,84 GB utilizables) |
+| Modelo y etiqueta | `gemma3:270m` |
+| Tamaño en disco | 291 MB |
+| Latencia de 5 ejecuciones (ms) | 19 694, 735, 268, 280 y 213 ms |
+| Latencia promedio | 4 238 ms (4,238 segundos) |
+| RAM usada durante la inferencia | 1,3 GiB usados en WSL según `free -h` (medición posterior a la inferencia; no representa necesariamente el pico de consumo). |
+| Calidad percibida (1 a 5) | 4/5. El modelo respondió correctamente a las instrucciones sencillas y generó respuestas coherentes, aunque su capacidad es limitada para tareas más complejas. |
+
+## Observaciones
+
+El modelo Gemma 3 270M respondió correctamente a las cinco solicitudes realizadas. La primera ejecución presentó una latencia considerablemente superior a las posteriores, posiblemente debido a la carga inicial del modelo. En las siguientes ejecuciones, los tiempos de respuesta disminuyeron notablemente, llegando a valores inferiores a un segundo.
+
+El equipo utilizado para las pruebas cuenta con un procesador Intel Core i5-9300H, 8 GB de RAM y una tarjeta gráfica NVIDIA GeForce GTX 1650 de 4 GB. El modelo tiene un tamaño de 291 MB en disco y presentó un promedio de latencia de 4,238 segundos en las cinco ejecuciones, incluyendo la primera carga.
+
+La memoria observada en WSL después de la inferencia fue de 1,3 GiB usados, con 2,5 GiB disponibles. Esta medición corresponde al momento posterior a la ejecución y no necesariamente al pico de memoria alcanzado durante la generación.
+
+La calidad percibida fue calificada con 4 sobre 5, debido a que el modelo respondió adecuadamente a instrucciones sencillas, aunque se considera que puede presentar limitaciones al realizar tareas más complejas.
