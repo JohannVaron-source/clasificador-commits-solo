@@ -85,14 +85,27 @@ Tabla `inferencias`:
 mkdir -p backups
 docker compose exec -T db pg_dump -U postgres iadb > backups/respaldo_$(date +%F).sql
 
-# 2) Restaurar (sobre una base con el problema)
+# 2) Restaurar (la tabla debe estar vacía o la base recién creada)
 cat backups/respaldo_FECHA.sql | docker compose exec -T db psql -U postgres -d iadb
+
+# 3) Verificar
+docker compose exec -T db psql -U postgres -d iadb -c "SELECT COUNT(*) FROM inferencias;"
 ```
 
-**Prueba realizada:** [COMPLETAR: fecha, registros antes del desastre simulado, registros tras `TRUNCATE`, registros tras restaurar].
+El respaldo es un volcado de `pg_dump` que incluye la definición de la tabla y sus datos. Al restaurar sobre una base que ya tiene la tabla, PostgreSQL muestra los errores `relation "inferencias" already exists` y `multiple primary keys for table "inferencias" are not allowed`: son esperados, porque esos pasos ya existen, y no impiden que se carguen las filas (`COPY`). Si la tabla aún tiene datos, la carga fallaría por claves duplicadas, por lo que antes hay que vaciarla o usar una base nueva.
 
-**Periodicidad propuesta:** [COMPLETAR, p. ej. diaria, con retención de 7 días].
-**Responsable:** [COMPLETAR].
+**Prueba realizada (2026-11-26):**
+
+| Paso | Registros en `inferencias` |
+|---|---|
+| Antes del desastre simulado | 614 |
+| Tras `TRUNCATE inferencias` (desastre simulado) | 0 |
+| Tras restaurar el respaldo | 614 |
+
+El conteo volvió al valor original, por lo que el respaldo es restaurable.
+
+**Periodicidad propuesta:** diaria, con retención de 7 días y una copia semanal guardada fuera del equipo.
+**Responsable:** Johan Andres Varon (integrante único del equipo).
 
 Los archivos `.sql` contienen datos de usuarios: `backups/` está en `.gitignore` y no se sube al repositorio.
 
@@ -114,7 +127,7 @@ Los archivos `.sql` contienen datos de usuarios: `backups/` está en `.gitignore
 - `/inferencias` acepta cualquier valor de `limite`, sin tope máximo.
 - `db/init.sql` contiene la contraseña del rol `app_ia` en texto plano; en producción debería inyectarse desde un secreto.
 - Las reglas del motor eco son sencillas: un mensaje que no coincide con ninguna se clasifica como `chore`.
-- Con `OLLAMA_KEEP_ALIVE=0`, cada petición carga el modelo en memoria, lo que eleva la latencia en equipos pequeños.
+- Con `OLLAMA_KEEP_ALIVE=0` el modelo se descarga tras cada respuesta, por lo que cada petición al motor ollama paga la carga: en la caracterización con el servicio desplegado, promedio de 3616 ms y p95 de 3901 ms (frente a 213 a 735 ms con el modelo residente en memoria).
 - Ollama corre fuera de Docker, por lo que la solución depende de que esté instalado y accesible desde los contenedores.
 - Se guardan en texto plano los mensajes que envían los usuarios; ver consideraciones de la Ley 1581 de 2012 en el informe técnico.
-- [COMPLETAR: otras limitaciones que haya encontrado su equipo]
+- `.env.example` incluye contraseñas de ejemplo para desarrollo: deben cambiarse en un servidor real, y como `db/init.sql` fija la clave de `app_ia`, hay que cambiarla también allí.
