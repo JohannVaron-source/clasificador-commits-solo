@@ -62,29 +62,79 @@ Comparando P-08 con P-09, la inferencia del modelo es el cuello de botella, no l
 
 ## Propuesta de escalamiento
 
-> Responda con SUS observaciones del despliegue en el servidor remoto. Las preguntas guía están abajo.
+
 
 ### 1. Diferencias entre el despliegue local y el remoto
-Rutas, puertos (¿cuál le asignaron?), secretos (¿cómo creó el `.env` en el servidor?), permisos y disponibilidad del modelo (¿había Ollama en el servidor?).
 
-[COMPLETAR]
+Durante el despliegue local, el sistema se ejecutó utilizando Docker Compose, con dos contenedores principales: la API desarrollada con FastAPI y la base de datos PostgreSQL. La API se expuso mediante el puerto 8000 y se comunicó con PostgreSQL a través de la red interna de Docker, utilizando el nombre del servicio `db`.
+
+En el entorno remoto, el despliegue requiere adaptar la configuración a las rutas, puertos y permisos asignados por el servidor. Las variables sensibles, como las credenciales de PostgreSQL, deben configurarse mediante un archivo `.env` creado directamente en el servidor, evitando que este archivo se publique en GitHub. También es necesario comprobar que Docker tenga los permisos adecuados para ejecutar los contenedores.
+
+En cuanto al modelo, la API utiliza Ollama mediante una conexión HTTP. Ollama se encuentra disponible en `0.0.0.0:11434`, utilizando el puerto 11434 para las solicitudes. Esto permite que la API FastAPI pueda comunicarse con el servicio de inferencia desde la red, siempre que la configuración de conectividad y los permisos del servidor lo permitan. De esta manera, el modelo no necesita ejecutarse dentro del mismo contenedor de la API, sino que puede funcionar como un servicio independiente.
 
 ### 2. Qué componentes moverían a la nube y cuáles mantendrían, y por qué
-Piense en: base de datos (servicio administrado vs. contenedor), API, modelo.
 
-[COMPLETAR]
+Para escalar el proyecto, se propone trasladar los componentes principales a una infraestructura en la nube, permitiendo mejorar la disponibilidad, facilitar el mantenimiento y soportar una mayor cantidad de solicitudes.
+
+- **Base de datos:** Se utilizaría PostgreSQL mediante un servicio administrado en la nube. Esto permitiría delegar tareas como mantenimiento, respaldos, actualizaciones y supervisión, reduciendo la dependencia de un único servidor. Para un entorno de pruebas o de bajo presupuesto, PostgreSQL en Docker puede mantenerse.
+- **API:** La API FastAPI se desplegaría en contenedores, permitiendo crear varias réplicas para distribuir las solicitudes y mejorar la disponibilidad. Docker facilitaría la portabilidad entre ambientes locales y remotos.
+- **Modelo de IA:** Ollama podría mantenerse en un servidor dedicado con recursos suficientes, especialmente memoria y GPU si se requiere mayor velocidad. Para un sistema con alta demanda, se evaluaría utilizar infraestructura especializada para inferencia o servicios administrados de modelos, comparando rendimiento y costo.
+
+La separación de estos componentes permitiría escalar cada uno de manera independiente. Por ejemplo, se podrían aumentar las réplicas de la API sin necesidad de duplicar la base de datos o el modelo de IA.
 
 ### 3. Dónde se ejecutaría el modelo con 1000 peticiones por minuto, y qué costo implica
-Use sus mediciones de latencia (P-09): si una inferencia tarda X segundos, ¿cuántas peticiones por minuto resiste una instancia? ¿Qué implicaría usar GPU, un servicio administrado o varias réplicas?
 
-[COMPLETAR]
+De acuerdo con la prueba P-09, el modelo `gemma3:270m` presentó una latencia promedio de 3.616 segundos por inferencia, una mediana de 3.549 segundos y un percentil 95 (p95) de 3.901 segundos. Estas mediciones se realizaron de forma secuencial y con la configuración `OLLAMA_KEEP_ALIVE=0`, lo que implica que el modelo se descargaba de memoria después de cada respuesta.
 
+Si una instancia procesara las solicitudes de manera secuencial, su capacidad teórica sería:
+
+60 / 3.616 ≈ 16,6 peticiones por minuto.
+
+Para atender 1000 peticiones por minuto, se necesitarían aproximadamente 61 instancias trabajando de manera secuencial, bajo el supuesto de que todas mantuvieran el mismo rendimiento y sin considerar la sobrecarga adicional.
+
+| Dato | Valor estimado |
+|---|---:|
+| Demanda requerida | 1000 peticiones/minuto |
+| Peticiones por segundo | 16,67 |
+| Latencia promedio P-09 | 3,616 segundos |
+| Capacidad teórica por instancia secuencial | 16,6 peticiones/minuto |
+| Instancias teóricas necesarias | 61 |
+| Concurrencia aproximada requerida | 60 peticiones simultáneas |
+| Concurrencia considerando p95 | 65 aproximadamente |
+
+Para atender esta demanda, el modelo no se ejecutaría en el equipo local utilizado durante las pruebas, sino en servidores especializados en inferencia, preferiblemente con GPU, suficiente memoria y capacidad para manejar solicitudes concurrentes.
+
+Se podrían evaluar tres alternativas:
+
+1. **Servidor dedicado con GPU:** permitiría ejecutar el modelo con mayor velocidad y atender varias inferencias simultáneamente. Su costo dependería del tipo de GPU, memoria, horas de uso y proveedor.
+2. **Servicio administrado de inferencia:** evitaría administrar directamente el hardware y facilitaría la escalabilidad, pero el costo dependería del volumen de solicitudes, tokens procesados o tiempo de ejecución.
+3. **Varias réplicas del modelo:** permitirían distribuir las solicitudes entre diferentes instancias, reduciendo la saturación de un único servidor y mejorando la capacidad de procesamiento.
+
+La cantidad de instancias calculada es una estimación teórica basada en la medición P-09. En un entorno real sería necesario realizar pruebas de carga concurrentes, debido a que el rendimiento cambia dependiendo de la GPU, la memoria, la configuración de Ollama, el tamaño del modelo y la cantidad de solicitudes simultáneas.
 ### 4. Disponibilidad del servicio y conservación de los datos
-Réplicas de la API, reinicio automático, respaldos periódicos fuera del servidor, copia de la base.
 
-[COMPLETAR]
+Para mejorar la disponibilidad del sistema y evitar la pérdida de información, se implementarían mecanismos de redundancia, recuperación y respaldo.
+
+- **Réplicas de la API:** se desplegarían varias instancias de FastAPI detrás de un balanceador de carga, permitiendo distribuir las peticiones y evitar que la caída de una instancia interrumpa todo el servicio.
+- **Reinicio automático:** se configuraría una política de reinicio para los contenedores, de manera que puedan recuperarse automáticamente ante fallos.
+- **Respaldos periódicos:** se realizarían copias de seguridad de la base de datos PostgreSQL de forma programada y se almacenarían fuera del servidor principal.
+- **Conservación de datos:** se mantendría un respaldo de la base de datos que permita recuperar las inferencias y demás información registrada en caso de daños, fallos o pérdida del servidor.
+- **Monitoreo:** se supervisaría el estado de la API, la base de datos, el modelo, el uso de CPU y memoria, además de las latencias y errores del servicio.
+
+En el despliegue actual, el proyecto ya cuenta con un volumen persistente de PostgreSQL (`pgdata`), lo cual permite conservar los datos al recrear los contenedores. Sin embargo, un volumen local no reemplaza los respaldos externos, ya que si se pierde el servidor también podrían perderse los datos almacenados en él.
 
 ### 5. Protección de datos personales (Ley 1581 de 2012)
-La tabla `inferencias` guarda el texto que escriben los usuarios, que podría contener datos personales. Considere: autorización y finalidad del tratamiento, información al titular, seguridad, tiempo de conservación y derecho de supresión (nota: el rol `app_ia` no puede borrar registros).
 
-[COMPLETAR]
+La tabla `inferencias` almacena los textos enviados por los usuarios para clasificarlos. Aunque estos textos corresponden principalmente a mensajes de commit, podrían incluir información personal, como nombres, correos electrónicos, identificadores u otros datos que permitan identificar a una persona.
+
+Por este motivo, el sistema debería implementar medidas para cumplir con los principios de protección de datos personales establecidos en la Ley 1581 de 2012:
+
+- **Autorización y finalidad:** se informaría al usuario que el texto enviado será procesado para realizar la clasificación y almacenado con fines de registro, evaluación y funcionamiento del sistema. Se obtendría la autorización correspondiente cuando sea exigible.
+- **Información al titular:** se dispondría de una política de tratamiento de datos que explique qué información se recolecta, para qué se utiliza, cuánto tiempo se conserva y cómo ejercer los derechos correspondientes.
+- **Seguridad:** se protegería el acceso a la base de datos mediante credenciales seguras, permisos limitados, conexiones protegidas y restricciones para evitar consultas o modificaciones no autorizadas.
+- **Tiempo de conservación:** se establecería un periodo definido para conservar los registros de inferencias, evitando almacenar información indefinidamente cuando ya no sea necesaria para la finalidad establecida.
+- **Derecho de supresión:** se habilitaría un procedimiento para atender solicitudes de eliminación de datos personales cuando legalmente proceda. Actualmente, el rol `app_ia` no tiene permisos para borrar registros, por lo que este proceso tendría que ejecutarse mediante un mecanismo administrativo controlado, sin otorgarle permisos de eliminación indiscriminados a la aplicación.
+
+Además, se podría reducir la cantidad de información almacenada, evitando registrar datos innecesarios, y utilizar anonimización o eliminación de datos identificables cuando sea posible.
+
+Estas medidas ayudarían a proteger la privacidad de los usuarios, reducir riesgos de exposición de información y mejorar la seguridad del sistema.
