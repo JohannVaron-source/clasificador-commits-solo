@@ -222,3 +222,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 *:Zone.Identifier
+*:Zone.Identifier
+.env
+.venv/
+__pycache__/
+backups/
