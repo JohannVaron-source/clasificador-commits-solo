@@ -6,7 +6,7 @@ Servicio de inferencia que recibe el texto de un mensaje de commit y lo clasific
 
 | Integrante | Perfil de hardware |
 |---|---|
-| [Johan Andres varon] | [C] |
+| [Johan Andres varon] | [B] |
 
 ## Requisitos
 

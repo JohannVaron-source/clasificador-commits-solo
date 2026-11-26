@@ -26,14 +26,14 @@ La calidad percibida fue calificada con 4 sobre 5, debido a que el modelo respon
 
 ## Plan de pruebas del despliegue
 
-Perfil de hardware: ____   Modelo: ____   Fecha de ejecucion: ____
+Perfil de hardware: B   Modelo: gemma3:270m   Fecha de ejecucion: 2026-11-26
 
 | ID | Tipo | Que se verifica | Resultado esperado | Obtenido | Estado |
 |----|------|-----------------|--------------------|----------|--------|
 | P-01 | Funcional | GET /health responde | Codigo 200 y estado ok | | |
 | P-02 | Funcional | POST /clasificar con motor eco | Codigo 200 y tipo correcto | | |
 | P-03 | Funcional | Motor invalido | Codigo 400 | | |
-| P-04 | Acceso | Rol app_ia intenta DROP TABLE | Error de permisos | | |
+| P-04 | Acceso | Rol app_ia intenta DROP TABLE | Error de permisos | DELETE rechazado: permission denied for table inferencias. DROP TABLE rechazado: must be owner of table inferencias | Aprobada |
 | P-05 | Conectividad | La API resuelve el host db | Devuelve una IP interna | | |
 | P-06 | Disponibilidad | Reinicio del contenedor de BD | La API se recupera sola | | |
 | P-07 | Persistencia | down y up conservan los datos | Los registros siguen existiendo | | |
