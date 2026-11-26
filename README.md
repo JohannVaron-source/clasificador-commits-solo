@@ -6,7 +6,7 @@ Servicio de inferencia que recibe el texto de un mensaje de commit y lo clasific
 
 | Integrante | Perfil de hardware |
 |---|---|
-| [COMPLETAR] | [A / B / C / D] |
+| [Johan Andres varon] | [C] |
 
 ## Requisitos
 
@@ -71,17 +71,18 @@ pytest -v
 
 Prueba de carga con k6: `tests/carga/prueba_carga.js`. Caracterización del modelo: `tests/carga/caracterizar_modelo.py`.
 
-## Solución de problemas
 
-[COMPLETAR: mínimo cinco errores REALES que le ocurrieron al equipo]
+## Solución de problemas
 
 | Error | Causa | Cómo se resolvió |
 |---|---|---|
-| | | |
-| | | |
-| | | |
-| | | |
-| | | |
+| `fatal: detected dubious ownership in repository at '//wsl.localhost/...'` | Se ejecutó Git de Windows (PowerShell) sobre archivos que viven dentro de WSL, y Windows los ve como una carpeta de otro dueño. | Se abrió la terminal de Ubuntu y se ejecutaron ahí todos los comandos de Git, dentro de la carpeta del proyecto. |
+| `error: src refspec feat/contenerizacion does not match any` | La rama no existía en la copia local: el commit nunca se hizo porque Git falló antes y los comandos se ejecutaron desde `~` y no desde la carpeta del repo. | Se entró a la carpeta del proyecto, se creó la rama con `git checkout -b`, se hizo el commit y luego el `git push origin <rama>`. |
+| `remote: Password authentication is not supported for Git operations` | El remoto estaba configurado por HTTPS, y GitHub ya no acepta la contraseña de la cuenta para Git. | Se configuró una llave SSH en GitHub y se cambió el remoto con `git remote set-url origin git@github.com:USUARIO/REPO.git`. |
+| `BLE001 Do not catch blind exception: Exception` (ruff, el CI fallaba en `calidad`) | En `/health` se capturaba `Exception` de forma genérica, algo que la regla de estilo no permite. | Se cambió por `except psycopg2.Error:`, se volvió a correr `ruff check app/` hasta ver `All checks passed!` y se subió el arreglo a la rama. |
+| `invalid-syntax: Expected an expression` en `app/main.py` | Al editar la línea con nano el archivo quedó dañado (sangría y final de archivo corruptos). | Se restauró con `git checkout -- app/main.py` y se repitió el cambio con `sed -i`, que no abre el editor. |
+| El CI fallaba en el job `pruebas` | El archivo `pytest.ini` no se había subido al repositorio (no aparecía en `git ls-files`), así que pytest no encontraba el módulo `app`. | Se creó `pytest.ini` con `pythonpath = .`, se hizo commit y push, y el CI volvió a correr. |
+| Archivos `*:Zone.Identifier` dentro del repositorio | Windows los crea al copiar archivos descargados hacia WSL, y se colaron en un `git add`. | Se quitaron con `git rm --cached` y se agregó `*:Zone.Identifier` al `.gitignore`. |
 
 ## Documentación
 
