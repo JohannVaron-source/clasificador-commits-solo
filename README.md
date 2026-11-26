@@ -89,6 +89,3 @@ Prueba de carga con k6: `tests/carga/prueba_carga.js`. Caracterización del mode
 - [Manual técnico](docs/manual-tecnico.md)
 - [Informe técnico](docs/informe-tecnico.md)
 
-## Video de demostración
-
-[COMPLETAR: enlace al video de 3 a 5 minutos]
