@@ -1,100 +1,120 @@
-# Manual técnico – Clasificador de mensajes de commit
+# Manual técnico — Clasificador de mensajes de commit
+
+Dirigido a quien va a **mantener** la solución.
 
 ## 1. Arquitectura
 
-El sistema está compuesto por un cliente, una API REST desarrollada con FastAPI, dos motores de clasificación y una base de datos PostgreSQL. La arquitectura permite clasificar mensajes de commit mediante reglas predefinidas o utilizando un modelo de lenguaje local ejecutado con Ollama.
-
-### 1.1 Diagrama de arquitectura
-
-```mermaid
-flowchart TD
-    C["Cliente<br/>Navegador / Swagger UI"]
-    API["API REST - FastAPI<br/>Puerto 8000"]
-    ECO["Motor ECO<br/>Reglas y expresiones regulares"]
-    OLL["Ollama<br/>Gemma 3 270M<br/>Puerto 11434"]
-    DB[("PostgreSQL<br/>Puerto 5432<br/>Tabla inferencias")]
-
-    C -->|"HTTP :8000"| API
-    API --> ECO
-    API -->|"HTTP :11434"| OLL
-    API -->|"SQL :5432"| DB
-    ECO --> API
-    OLL --> API
+```
+Cliente (navegador / Postman)
+        |  HTTP :8000
+        v
++---------------------------+
+| API FastAPI  (api-ia)     |  contenedor, usuario appuser (sin privilegios)
+| POST /clasificar          |
+| GET  /health              |
+| GET  /inferencias         |
++------+--------------+-----+
+       |              |
+  motor "eco"     motor "ollama"
+  (reglas, sin    HTTP -> host.docker.internal:11434
+   modelo)        +------------------------------+
+       |          | Ollama (en el equipo, fuera  |
+       |          | de Docker) gemma3 / qwen2.5  |
+       |          +------------------------------+
+       v
++---------------------------+
+| PostgreSQL 16 (db-ia)     |  red interna red-ia, puerto 5432
+| tabla inferencias         |  volumen persistente pgdata
++---------------------------+
 ```
 
-### 1.2 Componentes
-
-| Componente | Descripción | Puerto |
+| Componente | Función | Puerto |
 |---|---|---|
-| Cliente | Permite enviar mensajes de commit y consultar resultados mediante navegador o Swagger. | — |
-| API REST | Recibe solicitudes, selecciona el motor de clasificación, registra las inferencias y devuelve resultados. | 8000 |
-| Motor ECO | Clasifica mensajes mediante reglas y expresiones regulares, sin utilizar un modelo de inteligencia artificial. | Interno |
-| Ollama | Ejecuta el modelo Gemma 3 270M de forma local para clasificar los mensajes. | 11434 |
-| PostgreSQL | Almacena las inferencias realizadas, incluyendo entrada, salida, motor, modelo y latencia. | 5432 |
+| API FastAPI | Recibe el texto del commit, lo clasifica con el motor elegido, registra la inferencia y responde en JSON. | 8000 (publicado) |
+| Motor eco | Clasificación por expresiones regulares. Línea base de comparación; funciona sin modelo ni memoria extra. | — |
+| Motor ollama | Clasificación con un LLM local mediante la API de Ollama. | 11434 (en el equipo) |
+| PostgreSQL | Guarda cada inferencia. | 5432 (solo red interna de Compose) |
 
-### 1.3 Flujo de funcionamiento
-
-1. El cliente envía un mensaje de commit a la API REST.
-2. FastAPI recibe la solicitud a través del puerto 8000.
-3. La API determina el motor de clasificación que se utilizará.
-4. Si se selecciona ECO, se aplican reglas y expresiones regulares al texto.
-5. Si se selecciona Ollama, la API envía el mensaje al modelo local Gemma 3 270M mediante el puerto 11434.
-6. El resultado de la clasificación regresa a la API.
-7. La API registra la información de la inferencia en PostgreSQL mediante el puerto 5432.
-8. Finalmente, la API devuelve al cliente la categoría obtenida, el motor utilizado, el modelo y la latencia.
-
----
+Orquestación: `docker-compose.yml` define los servicios `db` y `api`, la red `red-ia` y el volumen `pgdata`. La API espera a que la base de datos pase su `healthcheck` antes de arrancar.
 
 ## 2. Seguridad
 
-### 2.1 Puertos utilizados y exposición
+**Puertos expuestos.** Solo el 8000 (API) se publica hacia el equipo anfitrión, porque es el único que los clientes necesitan. PostgreSQL no se publica: solo es alcanzable desde la red interna `red-ia`. Ollama escucha en el puerto 11434 del equipo anfitrión.
 
-El sistema utiliza los siguientes puertos para la comunicación entre sus componentes:
+**Roles en la base de datos.**
 
-| Puerto | Componente | Uso | Exposición prevista |
-|---|---|---|---|
-| 8000 | FastAPI | Recibir solicitudes HTTP de los clientes. | Clientes autorizados o entorno local de desarrollo. |
-| 11434 | Ollama | Procesamiento de mensajes mediante el modelo local. | Acceso interno desde la API. |
-| 5432 | PostgreSQL | Consultas y almacenamiento de inferencias. | Acceso interno desde la API. |
+| Rol | Uso | Privilegios |
+|---|---|---|
+| `postgres` | Administración, respaldos | Todos. No lo usa la aplicación. |
+| `app_ia` | Conexión de la API | `CONNECT`, `USAGE` en el esquema `public`, `SELECT` e `INSERT` en `inferencias`, `USAGE`/`SELECT` en su secuencia. Sin `UPDATE`, `DELETE` ni `DROP`. |
 
-Los puertos de Ollama y PostgreSQL no deben exponerse directamente a Internet, ya que son servicios internos del sistema. El acceso a la API también debe restringirse a los usuarios autorizados según el entorno de despliegue.
+**Secretos.** Las contraseñas viven en el archivo `.env`, que está en `.gitignore` y `.dockerignore` y nunca se sube al repositorio. En el repositorio solo existe `.env.example`, con los nombres de las variables y sin valores.
 
-### 2.2 Roles de la base de datos
+**Si se filtra una contraseña:** (1) cambiarla de inmediato en PostgreSQL (`ALTER ROLE ... PASSWORD ...`) y en el `.env`; (2) reiniciar la API con `docker compose restart api`; (3) si llegó al historial de Git, tratarla como comprometida aunque se borre el archivo, y rotarla; (4) revisar la tabla `inferencias` en busca de actividad anómala.
 
-Se utilizan dos tipos de roles para administrar el acceso a PostgreSQL:
+## 3. Endpoints
 
-**Usuario de aplicación (`app_ia`):**
+| Método | Ruta | Entrada | Respuesta | Errores |
+|---|---|---|---|---|
+| GET | `/health` | — | `{"estado":"ok","base_datos":"ok"}` | 503 si la base de datos no responde |
+| POST | `/clasificar` | JSON: `texto` (obligatorio), `motor` (`eco` u `ollama`, opcional; por defecto el de `MOTOR_POR_DEFECTO`) | `motor`, `modelo`, `entrada`, `tipo`, `latencia_ms` | 400 si el motor no es válido; 422 si falta `texto`; 500 si Ollama no responde |
+| GET | `/inferencias` | Query: `limite` (entero, por defecto 20) | Lista de las últimas inferencias, de más reciente a más antigua | 500 si falla la base de datos |
 
-- Utilizado por la API para conectarse a PostgreSQL.
-- Permite realizar las operaciones necesarias para registrar y consultar inferencias.
-- No debe tener permisos administrativos innecesarios.
-- No debe tener permisos para administrar usuarios ni modificar la configuración general del servidor.
+Documentación interactiva: `http://localhost:8000/docs`.
 
-**Usuario administrador:**
+## 4. Modelo de datos
 
-- Encargado de tareas administrativas de PostgreSQL.
-- Puede realizar tareas de configuración, mantenimiento, gestión de usuarios y administración de la base de datos.
-- No debe utilizarse para las operaciones habituales de la API.
+Tabla `inferencias`:
 
-Se aplica el principio de mínimo privilegio, otorgando a cada rol únicamente los permisos requeridos para sus funciones.
+| Campo | Tipo | Significado |
+|---|---|---|
+| `id` | SERIAL, clave primaria | Identificador autoincremental |
+| `fecha` | TIMESTAMP, por defecto `NOW()` | Momento en que se registró la inferencia |
+| `motor` | VARCHAR(20) | `eco` u `ollama` |
+| `modelo` | VARCHAR(120) | `reglas-v1` para eco; el nombre del modelo de Ollama en el otro caso |
+| `entrada` | TEXT | Mensaje de commit enviado por el usuario |
+| `salida` | TEXT | Tipo asignado (`feat`, `fix`, `docs`, `test`, `chore`, `refactor` o `desconocido`) |
+| `latencia_ms` | INTEGER | Tiempo de clasificación en milisegundos |
 
-### 2.3 Manejo de secretos
+## 5. Respaldo y restauración
 
-Las credenciales y configuraciones sensibles se almacenan mediante variables de entorno definidas en el archivo `.env`.
+**Procedimiento probado:**
 
-El archivo `.env` contiene información como las contraseñas de la base de datos y no debe subirse al repositorio Git.
+```bash
+# 1) Crear el respaldo
+mkdir -p backups
+docker compose exec -T db pg_dump -U postgres iadb > backups/respaldo_$(date +%F).sql
 
-Para documentar las variables de configuración se utiliza `.env.example`, el cual contiene valores de ejemplo sin incluir credenciales reales.
+# 2) Restaurar (sobre una base con el problema)
+cat backups/respaldo_FECHA.sql | docker compose exec -T db psql -U postgres -d iadb
+```
 
-El archivo `.gitignore` incluye `.env` para evitar que sea agregado accidentalmente al repositorio.
+**Prueba realizada:** [COMPLETAR: fecha, registros antes del desastre simulado, registros tras `TRUNCATE`, registros tras restaurar].
 
-### 2.4 Procedimiento ante filtración de contraseña
+**Periodicidad propuesta:** [COMPLETAR, p. ej. diaria, con retención de 7 días].
+**Responsable:** [COMPLETAR].
 
-En caso de que una contraseña sea filtrada o expuesta, se realizarían las siguientes acciones:
+Los archivos `.sql` contienen datos de usuarios: `backups/` está en `.gitignore` y no se sube al repositorio.
 
-1. Cambiar inmediatamente la contraseña comprometida.
-2. Actualizar las variables de entorno y las configuraciones que utilicen la credencial.
-3. Revocar o restringir el acceso de la cuenta comprometida cuando sea necesario.
-4. Revisar los registros para identificar posibles accesos no autorizados.
-5. Si el secreto fue publicado en GitHub, retirar la credencial expuesta y limpiar el historial del repositorio cuando corresponda.
-6. Verificar el funcionamiento de los servicios con la nueva contraseña
+## 6. Decisiones de diseño y limitaciones
+
+**Decisiones**
+
+- **Dockerfile multi-etapa:** la primera etapa instala dependencias y la segunda solo ejecuta, con lo que la imagen final es más liviana y no arrastra herramientas de construcción.
+- **Usuario sin privilegios (`appuser`):** si alguien vulnera la aplicación, no obtiene permisos de administrador dentro del contenedor.
+- **Motor eco:** funciona sin modelo ni memoria extra, sirve como línea base de comparación y permite que la solución opere en equipos de 4 GB o cuando Ollama no está disponible.
+- **Privilegios mínimos en la base de datos:** la API solo necesita leer e insertar; limitar el rol reduce el daño de un error o de una inyección SQL.
+- **Credenciales en `.env`:** separan configuración y código, y permiten usar valores distintos por entorno sin tocar el repositorio.
+- **Volumen `pgdata`:** los datos sobreviven a `docker compose down`.
+- **Healthcheck en la base de datos:** evita que la API arranque antes de que PostgreSQL esté lista.
+
+**Limitaciones conocidas**
+
+- La API no tiene autenticación: cualquiera con acceso al puerto 8000 puede clasificar y leer el historial.
+- `/inferencias` acepta cualquier valor de `limite`, sin tope máximo.
+- `db/init.sql` contiene la contraseña del rol `app_ia` en texto plano; en producción debería inyectarse desde un secreto.
+- Las reglas del motor eco son sencillas: un mensaje que no coincide con ninguna se clasifica como `chore`.
+- Con `OLLAMA_KEEP_ALIVE=0`, cada petición carga el modelo en memoria, lo que eleva la latencia en equipos pequeños.
+- Ollama corre fuera de Docker, por lo que la solución depende de que esté instalado y accesible desde los contenedores.
+- Se guardan en texto plano los mensajes que envían los usuarios; ver consideraciones de la Ley 1581 de 2012 en el informe técnico.
+- [COMPLETAR: otras limitaciones que haya encontrado su equipo]
