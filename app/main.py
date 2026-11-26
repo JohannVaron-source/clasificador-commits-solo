@@ -3,13 +3,12 @@
 import os
 import re
 import time
+
 import psycopg2
 import requests
-
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
 
 load_dotenv()
 
@@ -126,7 +125,7 @@ def health():
             "base_datos": "ok"
         }
 
-    except Exception:
+    except psycopg2.Error:
         raise HTTPException(
             status_code=503,
             detail="Base de datos no disponible"
